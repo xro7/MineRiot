@@ -39,8 +39,9 @@ public class MineRiot {
 		// 3,000 calls per 10 seconds AND 180,000 calls per 10 minutes
 		RiotAPI.setRateLimit(new RateLimit(3000, 10), new RateLimit(180000, 600));
 
-		Summoner summoner = RiotAPI.getSummonerByName("Gai s3ns3i");
-		Long summonerID = summoner.getID();
+		//Summoner summoner = RiotAPI.getSummonerByName("Gai s3ns3i");
+		//Long summonerID = summoner.getID();
+		Long summonerID =(long) 24229235;
 		Set<Long> summonerIds = new HashSet<Long>();
 		Set<Long> usedIds = new HashSet<Long>();
 		summonerIds.add(summonerID);
@@ -60,11 +61,24 @@ public class MineRiot {
 			System.out.println("iteration: "+counter+" getting match data from summoner with id: "+ summonerID);  
 			usedIds.add(summonerID);
 
-			Set<Long> matchIds = getMatchIdsFromSummoner(summonerID,"PRESEASON2017");
+			List<Long> matchIds = getMatchIdsFromSummoner(summonerID,"PRESEASON2017");
 			System.out.println(matchIds.size()+" games");
 
 			//List<String> matchesToJSON = new ArrayList<String>();
 			List<Match> jsonMatches = getMatchesFromMatchIds(matchIds);
+			if (jsonMatches==null){
+				for(Long id : summonerIds){
+					if(!usedIds.contains(id)){
+						summonerID = id;
+						break;
+					}else{
+						summonerID = (long) -1;
+					}
+				}
+
+				counter++; 
+				continue;
+			}
 			Set<Long> participantIds = getParticipantIds(jsonMatches);
 
 			for (int i = 0; i < jsonMatches.size(); i++) {
@@ -105,10 +119,11 @@ public class MineRiot {
 
 	}
 
-	private static Set<Long> getMatchIdsFromSummoner(long summonerID,String season){
-		Set<Long> matchIds = new HashSet<Long>();
+	private static List<Long> getMatchIdsFromSummoner(long summonerID,String season){
+		List<Long> matchIds = new ArrayList<Long>();
 		List<MatchReference> matchList;
 		try{
+			
 			matchList = RiotAPI.getMatchList(summonerID);
 			for (int i = 0; i < matchList.size(); i++) {
 				//System.out.println(matchList.get(i).getSeason());
@@ -127,19 +142,20 @@ public class MineRiot {
 
 	}
 
-	private static List<Match> getMatchesFromMatchIds(Set<Long>matchIds){
+	private static List<Match> getMatchesFromMatchIds(List<Long>matchIds){
 
-		List<Long> matchIdsList = new ArrayList<Long>();
-		matchIdsList.addAll(matchIds);
-		List<Match> matches = null;
+
+		List<Match> matches = new ArrayList<Match>();
 		try{
-
-			matches = RiotAPI.getMatches(matchIdsList);
+			
+			//matches = RiotAPI.getMatches(matchIdsList);
+			for (int i = 0; i < matchIds.size(); i++) {
+				matches.add(RiotAPI.getMatch(matchIds.get(i)));
+			}
 
 
 		}catch(APIException e){
 			System.out.println(e);
-			System.exit(0);
 		}
 
 		return matches;
