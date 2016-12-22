@@ -18,7 +18,6 @@ import com.robrua.orianna.type.api.RateLimit;
 import com.robrua.orianna.type.core.common.Region;
 import com.robrua.orianna.type.core.match.Match;
 import com.robrua.orianna.type.core.matchlist.MatchReference;
-import com.robrua.orianna.type.core.summoner.Summoner;
 import com.robrua.orianna.type.exception.APIException;
 
 public class MineRiot {
@@ -50,7 +49,8 @@ public class MineRiot {
 
 
 		Scanner scan= new Scanner(System.in);
-
+		int prevLenght = 0;
+		int currentLength = 0;
 		do{
 			if(counter%10==0){
 				System.out.println("checkPoint");
@@ -60,8 +60,9 @@ public class MineRiot {
 			}
 			System.out.println("iteration: "+counter+" getting match data from summoner with id: "+ summonerID);  
 			usedIds.add(summonerID);
+			//summonerIds.remove(summonerID);
 
-			List<Long> matchIds = getMatchIdsFromSummoner(summonerID,"PRESEASON2017");
+			List<Long> matchIds = getMatchIdsFromSummoner(summonerID);
 			System.out.println(matchIds.size()+" games");
 
 			//List<String> matchesToJSON = new ArrayList<String>();
@@ -82,7 +83,7 @@ public class MineRiot {
 			Set<Long> participantIds = getParticipantIds(jsonMatches);
 
 			for (int i = 0; i < jsonMatches.size(); i++) {
-				//matchesToJSON.add(gson.toJson(jsonMatches.get(i)));
+				
 				try{
 					DBObject dbObject = (DBObject)JSON.parse(gson.toJson(jsonMatches.get(i)));
 					dbObject.put("_id", jsonMatches.get(i).getID());
@@ -94,10 +95,13 @@ public class MineRiot {
 					mongo.close();
 					System.exit(0);
 				}
-				//System.out.println(gson.toJson(jsonMatches.get(i)));
-			}
 
+			}
+			prevLenght = summonerIds.size();
 			summonerIds.addAll(participantIds);
+			currentLength = summonerIds.size();
+			System.out.println((currentLength-prevLenght)+" users added");
+			
 			for(Long id : summonerIds){
 				if(!usedIds.contains(id)){
 					summonerID = id;
@@ -113,32 +117,24 @@ public class MineRiot {
 		mongo.close();
 		scan.close();
 
-		//object to JSON, and assign to a String
-		//String summonerString = gson.toJson(summoner);
-		//System.out.println(summonerString);
 
 	}
 
-	private static List<Long> getMatchIdsFromSummoner(long summonerID,String season){
+	private static List<Long> getMatchIdsFromSummoner(long summonerID){
 		List<Long> matchIds = new ArrayList<Long>();
 		List<MatchReference> matchList;
 		try{
-			
+
 			matchList = RiotAPI.getMatchList(summonerID);
 			for (int i = 0; i < matchList.size(); i++) {
-				//System.out.println(matchList.get(i).getSeason());
-				if(matchList.get(i).getSeason().name().equals(season)){
-					matchIds.add(matchList.get(i).getID());
-				}
+					matchIds.add(matchList.get(i).getID());	
 			}
 		}catch(APIException e){
 			System.out.println(e);
-			
+
 		}
 
 		return matchIds;
-
-
 
 	}
 
@@ -147,12 +143,10 @@ public class MineRiot {
 
 		List<Match> matches = new ArrayList<Match>();
 		try{
-			
-			//matches = RiotAPI.getMatches(matchIdsList);
-			for (int i = 0; i < matchIds.size(); i++) {
-				matches.add(RiotAPI.getMatch(matchIds.get(i)));
-			}
 
+			for (int i = 0; i < matchIds.size(); i++) {
+				matches.add(RiotAPI.getMatch(matchIds.get(i),false));
+			}
 
 		}catch(APIException e){
 			System.out.println(e);
@@ -167,9 +161,11 @@ public class MineRiot {
 	private static Set<Long> getParticipantIds(List<Match> matches){
 		Set<Long> participantIds = new HashSet<Long>();
 		for (int i = 0; i < matches.size(); i++) {
+
 			for (int j = 0; j < matches.get(i).getParticipants().size(); j++) {
 				participantIds.add(matches.get(i).getParticipants().get(j).getSummonerID());
 			}
+
 		}
 		return participantIds;
 	}
