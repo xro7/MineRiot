@@ -2,11 +2,15 @@ package leagueDataRetrieval;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Scanner;
 import java.util.Set;
 
 import com.google.gson.Gson;
+import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
 import com.mongodb.DBCollection;
 import com.mongodb.DBObject;
@@ -18,6 +22,7 @@ import com.robrua.orianna.type.api.RateLimit;
 import com.robrua.orianna.type.core.common.Region;
 import com.robrua.orianna.type.core.match.Match;
 import com.robrua.orianna.type.core.matchlist.MatchReference;
+import com.robrua.orianna.type.core.summoner.Summoner;
 import com.robrua.orianna.type.exception.APIException;
 
 public class MineRiot {
@@ -29,6 +34,7 @@ public class MineRiot {
 		MongoClient mongo = new MongoClient( "localhost" , 27017 );
 		DB db = mongo.getDB("lol");
 		DBCollection collection =  db.getCollection("matches");
+		DBCollection collection2 =  db.getCollection("usedSummonerIds");
 
 		Gson gson = new Gson();
 
@@ -38,11 +44,11 @@ public class MineRiot {
 		// 3,000 calls per 10 seconds AND 180,000 calls per 10 minutes
 		RiotAPI.setRateLimit(new RateLimit(3000, 10), new RateLimit(180000, 600));
 
-		//Summoner summoner = RiotAPI.getSummonerByName("Gai s3ns3i");
-		//Long summonerID = summoner.getID();
-		Long summonerID =(long) 24229235;
-		Set<Long> summonerIds = new HashSet<Long>();
-		Set<Long> usedIds = new HashSet<Long>();
+		Summoner summoner = RiotAPI.getSummonerByName("lee fsin");
+		Long summonerID = summoner.getID();
+		//Long summonerID =(long) 58065678;
+		Queue<Long> summonerIds = new LinkedList<Long>();
+		//Set<Long> usedIds = new HashSet<Long>();
 		summonerIds.add(summonerID);
 
 		int counter =0;
@@ -59,60 +65,34 @@ public class MineRiot {
 				}
 			}
 			System.out.println("iteration: "+counter+" getting match data from summoner with id: "+ summonerID);  
-			usedIds.add(summonerID);
-			//summonerIds.remove(summonerID);
 
-			List<Long> matchIds = getMatchIdsFromSummoner(summonerID);
-			System.out.println(matchIds.size()+" games");
-
-			//List<String> matchesToJSON = new ArrayList<String>();
-			List<Match> jsonMatches = getMatchesFromMatchIds(matchIds);
-			if (jsonMatches==null){
-				for(Long id : summonerIds){
-					if(!usedIds.contains(id)){
-						summonerID = id;
-						break;
-					}else{
-						summonerID = (long) -1;
-					}
-				}
-
-				counter++; 
-				continue;
-			}
-			Set<Long> participantIds = getParticipantIds(jsonMatches);
-
-			for (int i = 0; i < jsonMatches.size(); i++) {
+			if (addSummonerIdTODB(mongo, collection2, summonerID)){
 				
 				try{
-					DBObject dbObject = (DBObject)JSON.parse(gson.toJson(jsonMatches.get(i)));
-					dbObject.put("_id", jsonMatches.get(i).getID());
-					collection.insert(dbObject);
-				}catch(DuplicateKeyException e){
-					System.out.println("Duplicate entry detected");
-				}catch(Exception e){
+	
+				List<Long> matchIds = getMatchIdsFromSummoner(summonerID);
+				System.out.println(matchIds.size()+" games were played from this summoner");
+	
+				List<Match> jsonMatches = getMatchesFromMatchIds(matchIds);
+				System.out.println(jsonMatches.size()+" games were fetched");
+	
+				Set<Long> participantIds = getParticipantIds(jsonMatches);
+				
+				System.out.println(addMatchesTODB(mongo,collection,jsonMatches)+" added to DB");
+	
+				prevLenght = summonerIds.size();
+				summonerIds.addAll(participantIds);
+				currentLength = summonerIds.size();
+				System.out.println((currentLength-prevLenght)+" users added in this iteration");
+				System.out.println(summonerIds.size()+" users in queue(not unique entries)");
+				}catch(NullPointerException e){
 					System.out.println(e.getMessage());
-					mongo.close();
-					System.exit(0);
-				}
-
-			}
-			prevLenght = summonerIds.size();
-			summonerIds.addAll(participantIds);
-			currentLength = summonerIds.size();
-			System.out.println((currentLength-prevLenght)+" users added");
-			
-			for(Long id : summonerIds){
-				if(!usedIds.contains(id)){
-					summonerID = id;
-					break;
-				}else{
-					summonerID = (long) -1;
+					continue;
 				}
 			}
-
-			counter++;     
-		}while(summonerID!=-1);
+			counter++;
+			summonerID = summonerIds.remove(); // get the head of the queue and remove it
+		}while(summonerIds.size()>0);
 
 		mongo.close();
 		scan.close();
@@ -123,16 +103,18 @@ public class MineRiot {
 	private static List<Long> getMatchIdsFromSummoner(long summonerID){
 		List<Long> matchIds = new ArrayList<Long>();
 		List<MatchReference> matchList;
-		try{
+		
 
 			matchList = RiotAPI.getMatchList(summonerID);
 			for (int i = 0; i < matchList.size(); i++) {
+				try{
 					matchIds.add(matchList.get(i).getID());	
+				}catch(APIException e){
+					System.out.println(e);
+	
+				}
 			}
-		}catch(APIException e){
-			System.out.println(e);
 
-		}
 
 		return matchIds;
 
@@ -142,15 +124,17 @@ public class MineRiot {
 
 
 		List<Match> matches = new ArrayList<Match>();
-		try{
+		
 
 			for (int i = 0; i < matchIds.size(); i++) {
-				matches.add(RiotAPI.getMatch(matchIds.get(i),false));
+				try{
+					matches.add(RiotAPI.getMatch(matchIds.get(i),false));
+				}catch(APIException e){
+					System.out.println(e);
+				}
 			}
 
-		}catch(APIException e){
-			System.out.println(e);
-		}
+
 
 		return matches;
 
@@ -168,6 +152,48 @@ public class MineRiot {
 
 		}
 		return participantIds;
+	}
+	
+	private static int addMatchesTODB(MongoClient mongo,DBCollection collection,List<Match> jsonMatches){
+		
+		Gson gson = new Gson();
+		int counter = 0;
+		for (int i = 0; i < jsonMatches.size(); i++) {
+			
+			try{
+				DBObject dbObject = (DBObject)JSON.parse(gson.toJson(jsonMatches.get(i)));
+				dbObject.put("_id", jsonMatches.get(i).getID());
+				collection.insert(dbObject);
+				counter++;
+			}catch(DuplicateKeyException e){
+				System.out.println("Duplicate entry detected");
+			}catch(Exception e){
+				System.out.println(e.getMessage());
+				mongo.close();
+				System.exit(0);
+			}
+
+		}
+		return counter;
+	}
+	
+	private static boolean addSummonerIdTODB(MongoClient mongo,DBCollection collection,Long summonerID){
+		
+			
+			try{
+				BasicDBObject dbObject = new BasicDBObject();
+				dbObject.put("_id", summonerID);
+				collection.insert(dbObject);
+			}catch(DuplicateKeyException e){
+				System.out.println("Duplicate entry detected");
+				return false;
+			}catch(Exception e){
+				System.out.println(e.getMessage());
+				mongo.close();
+				System.exit(0);
+			}
+			return true;
+	
 	}
 
 }
